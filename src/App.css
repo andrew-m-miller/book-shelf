@@ -50,6 +50,27 @@ body {
 .header h1 { font-size: 20px; font-weight: 500; }
 .header-sub { font-size: 13px; color: var(--text-sec); margin-bottom: 2px; }
 
+.header-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.import-btn {
+  font-size: 13px;
+  padding: 7px 16px;
+  border-radius: var(--radius-md);
+  border: 0.5px solid var(--border-hover);
+  background: transparent;
+  color: var(--text-sec);
+  cursor: pointer;
+  font-weight: 500;
+  font-family: inherit;
+  transition: all .15s;
+  white-space: nowrap;
+}
+.import-btn:hover { background: var(--bg-sec); color: var(--text); }
+
 .add-btn {
   display: flex;
   align-items: center;
@@ -89,6 +110,11 @@ body {
   gap: 8px;
   margin-bottom: 1rem;
   align-items: center;
+}
+
+.filter-btns {
+  display: flex;
+  gap: 8px;
   flex-wrap: wrap;
 }
 
@@ -142,10 +168,25 @@ body {
 
 .book-top {
   display: flex;
-  justify-content: space-between;
   align-items: flex-start;
-  gap: 8px;
+  gap: 10px;
 }
+.book-cover {
+  width: 52px;
+  height: 78px;
+  object-fit: cover;
+  border-radius: 4px;
+  flex-shrink: 0;
+  background: var(--bg-sec);
+}
+.book-cover-placeholder {
+  width: 52px;
+  height: 78px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  background: var(--bg-sec);
+}
+.book-info { flex: 1; min-width: 0; }
 .book-title { font-size: 15px; font-weight: 500; line-height: 1.3; }
 .book-author { font-size: 13px; color: var(--text-sec); margin-top: 2px; }
 
@@ -156,6 +197,7 @@ body {
   white-space: nowrap;
   flex-shrink: 0;
   font-weight: 500;
+  margin-left: auto;
 }
 .badge-read    { background: #EAF3DE; color: #3B6D11; }
 .badge-reading { background: #E6F1FB; color: #185FA5; }
@@ -391,6 +433,21 @@ body {
   gap: 8px;
 }
 .import-result-info { flex: 1; min-width: 0; }
+.import-cover {
+  width: 32px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 3px;
+  flex-shrink: 0;
+  background: var(--bg-sec);
+}
+.import-cover-placeholder {
+  width: 32px;
+  height: 48px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  background: var(--bg-sec);
+}
 .import-result-title {
   font-size: 13px;
   font-weight: 500;
@@ -414,6 +471,102 @@ body {
 }
 .import-result button:hover { background: var(--bg-sec); color: var(--text); }
 .import-status { font-size: 12px; color: var(--text-ter); margin-top: 6px; }
+
+/* ── goodreads import modal ─────────────────────────── */
+.gr-sub {
+  font-size: 14px;
+  color: var(--text-sec);
+  margin-bottom: 14px;
+  line-height: 1.5;
+}
+.gr-sub strong { color: var(--text); font-weight: 500; }
+
+.gr-counts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.gr-count-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--bg-sec);
+  border-radius: var(--radius-md);
+}
+.gr-count-num {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.gr-note {
+  font-size: 12px;
+  color: var(--text-ter);
+  line-height: 1.6;
+  margin-bottom: 4px;
+}
+
+/* ── mobile ─────────────────────────────────────────── */
+@media (max-width: 600px) {
+  .app { padding: 1.25rem 0.875rem; }
+
+  /* Single-column book grid */
+  .book-grid { grid-template-columns: 1fr; }
+
+  /* Stack date / page pairs vertically */
+  .field-row { grid-template-columns: 1fr; }
+
+  /* Filter pills scroll horizontally; search drops to its own full-width row */
+  .controls { flex-direction: column; align-items: stretch; }
+  .filter-btns {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: 2px;
+  }
+  .filter-btns::-webkit-scrollbar { display: none; }
+  .search-wrap { width: 100%; min-width: unset; flex: none; }
+
+  /* iOS Safari auto-zoom fix — inputs must be ≥16px on mobile */
+  .field input,
+  .field select,
+  .field textarea,
+  .import-row input,
+  .search-wrap input { font-size: 16px; }
+
+  /* Larger touch targets */
+  .filter-btn { padding: 9px 14px; font-size: 13px; }
+  .icon-btn   { padding: 8px 14px; }
+  .star  { font-size: 20px; padding: 4px 5px; }
+  .sp    { font-size: 28px; padding: 2px 6px; }
+  .add-btn { padding: 10px 18px; }
+
+  /* Bottom-sheet modal */
+  .modal-overlay {
+    align-items: flex-end;
+    padding: 0;
+  }
+  .modal {
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    padding: 16px 16px 32px;
+    max-width: 100%;
+    max-height: 92vh;
+    overflow-y: auto;
+  }
+  /* drag-handle affordance */
+  .modal::before {
+    content: '';
+    display: block;
+    width: 36px;
+    height: 4px;
+    background: var(--border-hover);
+    border-radius: 2px;
+    margin: 0 auto 14px;
+  }
+}
 
 /* ── misc ────────────────────────────────────────────── */
 .empty {
