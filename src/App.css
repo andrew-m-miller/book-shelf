@@ -212,14 +212,35 @@ body {
 }
 
 .stars { display: flex; gap: 3px; }
+
+.star-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.star-hit {
+  position: absolute;
+  top: 0; bottom: 0;
+  width: 50%;
+  cursor: pointer;
+  z-index: 1;
+}
+.star-hit-l { left: 0; }
+.star-hit-r { right: 0; }
+
 .star {
   font-size: 16px;
   color: var(--amber-dim);
-  cursor: pointer;
   transition: color .1s;
   line-height: 1;
+  pointer-events: none;
 }
 .star.filled { color: var(--amber); }
+.star.half {
+  background: linear-gradient(90deg, var(--amber) 50%, var(--amber-dim) 50%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
 
 .book-genre {
   font-size: 11px;
@@ -340,13 +361,19 @@ body {
 .star-picker { display: flex; gap: 4px; }
 .sp {
   font-size: 24px;
-  cursor: pointer;
   color: var(--amber-dim);
   transition: color .1s;
   line-height: 1;
   user-select: none;
+  pointer-events: none;
 }
 .sp.filled { color: var(--amber); }
+.sp.half {
+  background: linear-gradient(90deg, var(--amber) 50%, var(--amber-dim) 50%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
 
 .modal-actions {
   display: flex;
@@ -472,6 +499,93 @@ body {
 .import-result button:hover { background: var(--bg-sec); color: var(--text); }
 .import-status { font-size: 12px; color: var(--text-ter); margin-top: 6px; }
 
+/* ── view toggle ─────────────────────────────────────── */
+.view-toggle {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.view-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-md);
+  border: 0.5px solid transparent;
+  background: transparent;
+  color: var(--text-ter);
+  cursor: pointer;
+  transition: all .15s;
+}
+.view-btn.active {
+  background: var(--bg-sec);
+  color: var(--text);
+  border-color: var(--border);
+}
+.view-btn:hover:not(.active) { color: var(--text-sec); }
+
+/* ── list view ────────────────────────────────────────── */
+.book-list {
+  display: flex;
+  flex-direction: column;
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.book-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  background: var(--bg);
+  transition: background .1s;
+}
+.book-row + .book-row { border-top: 0.5px solid var(--border); }
+.book-row:hover { background: var(--bg-sec); }
+
+.row-cover {
+  width: 32px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 3px;
+  flex-shrink: 0;
+  background: var(--bg-sec);
+}
+.row-cover-placeholder {
+  width: 32px;
+  height: 48px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  background: var(--bg-sec);
+}
+
+.row-title {
+  flex: 2;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.row-author {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--text-sec);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.row-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
 /* ── goodreads import modal ─────────────────────────── */
 .gr-sub {
   font-size: 14px;
@@ -540,9 +654,14 @@ body {
   /* Larger touch targets */
   .filter-btn { padding: 9px 14px; font-size: 13px; }
   .icon-btn   { padding: 8px 14px; }
-  .star  { font-size: 20px; padding: 4px 5px; }
-  .sp    { font-size: 28px; padding: 2px 6px; }
+  .star  { font-size: 20px; }
+  .sp    { font-size: 28px; }
+  .star-wrap { padding: 4px 5px; }
   .add-btn { padding: 10px 18px; }
+
+  /* List view: hide less critical columns to keep rows clean */
+  .row-author { display: none; }
+  .book-list .stars { display: none; }
 
   /* Bottom-sheet modal */
   .modal-overlay {

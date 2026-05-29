@@ -133,35 +133,83 @@ async function lookupCoverByTitle(title, author) {
   }
 }
 
+// ─── View toggle icons ────────────────────────────────────────────────────────
+
+const GridIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true">
+    <rect x="0" y="0" width="6" height="6" rx="1"/>
+    <rect x="8" y="0" width="6" height="6" rx="1"/>
+    <rect x="0" y="8" width="6" height="6" rx="1"/>
+    <rect x="8" y="8" width="6" height="6" rx="1"/>
+  </svg>
+)
+
+const ListIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true">
+    <rect x="0" y="1"  width="14" height="2.5" rx="1"/>
+    <rect x="0" y="5.75" width="14" height="2.5" rx="1"/>
+    <rect x="0" y="10.5" width="14" height="2.5" rx="1"/>
+  </svg>
+)
+
 // ─── Stars ───────────────────────────────────────────────────────────────────
 
+// 'filled' | 'half' | '' based on where pos falls relative to rating
+function starCls(pos, rating) {
+  if (rating >= pos)       return 'filled'
+  if (rating >= pos - 0.5) return 'half'
+  return ''
+}
+
 function StarPicker({ value, onChange }) {
+  const [hovered, setHovered] = useState(null)
+  const display = hovered ?? value
+
   return (
     <div className="star-picker">
       {[1, 2, 3, 4, 5].map(n => (
-        <span
-          key={n}
-          className={`sp ${n <= value ? 'filled' : ''}`}
-          onClick={() => onChange(n === value ? 0 : n)}
-          role="button"
-          aria-label={`${n} star${n > 1 ? 's' : ''}`}
-        >★</span>
+        <span key={n} className="star-wrap">
+          <span
+            className="star-hit star-hit-l"
+            onMouseEnter={() => setHovered(n - 0.5)}
+            onMouseLeave={() => setHovered(null)}
+            onClick={() => onChange(n - 0.5 === value ? 0 : n - 0.5)}
+          />
+          <span
+            className="star-hit star-hit-r"
+            onMouseEnter={() => setHovered(n)}
+            onMouseLeave={() => setHovered(null)}
+            onClick={() => onChange(n === value ? 0 : n)}
+          />
+          <span className={`sp ${starCls(n, display)}`}>★</span>
+        </span>
       ))}
     </div>
   )
 }
 
 function StarDisplay({ value, onRate, bookId }) {
+  const [hovered, setHovered] = useState(null)
+  const display = hovered ?? value
+
   return (
     <div className="stars">
       {[1, 2, 3, 4, 5].map(n => (
-        <span
-          key={n}
-          className={`star ${n <= value ? 'filled' : ''}`}
-          onClick={() => onRate(bookId, n)}
-          role="button"
-          aria-label={`Rate ${n} star${n > 1 ? 's' : ''}`}
-        >★</span>
+        <span key={n} className="star-wrap">
+          <span
+            className="star-hit star-hit-l"
+            onMouseEnter={() => setHovered(n - 0.5)}
+            onMouseLeave={() => setHovered(null)}
+            onClick={() => onRate(bookId, n - 0.5 === value ? 0 : n - 0.5)}
+          />
+          <span
+            className="star-hit star-hit-r"
+            onMouseEnter={() => setHovered(n)}
+            onMouseLeave={() => setHovered(null)}
+            onClick={() => onRate(bookId, n === value ? 0 : n)}
+          />
+          <span className={`star ${starCls(n, display)}`}>★</span>
+        </span>
       ))}
     </div>
   )
@@ -223,6 +271,28 @@ function BookCard({ book, onEdit, onDelete, onRate }) {
       {book.notes && <div className="book-notes">{book.notes}</div>}
 
       <div className="book-actions">
+        <button className="icon-btn" onClick={() => onEdit(book)} aria-label="Edit">✏️</button>
+        <button className="icon-btn danger" onClick={() => onDelete(book.id)} aria-label="Delete">🗑</button>
+      </div>
+    </div>
+  )
+}
+
+// ─── Book Row (list view) ─────────────────────────────────────────────────────
+
+function BookRow({ book, onEdit, onDelete, onRate }) {
+  const meta = STATUS_META[book.status] || STATUS_META.want
+  return (
+    <div className="book-row">
+      {book.cover_url
+        ? <img className="row-cover" src={book.cover_url} alt="" onError={e => { e.target.style.display = 'none' }} />
+        : <div className="row-cover-placeholder" />
+      }
+      <div className="row-title">{book.title}</div>
+      <div className="row-author">{book.author}</div>
+      <span className={`status-badge ${meta.cls}`}>{meta.label}</span>
+      <StarDisplay value={book.rating || 0} onRate={onRate} bookId={book.id} />
+      <div className="row-actions">
         <button className="icon-btn" onClick={() => onEdit(book)} aria-label="Edit">✏️</button>
         <button className="icon-btn danger" onClick={() => onDelete(book.id)} aria-label="Delete">🗑</button>
       </div>
@@ -497,6 +567,7 @@ export default function App() {
   const [search, setSearch]     = useState('')
   const [modal, setModal]       = useState(null)       // null | 'add' | book object
   const [importData, setImportData] = useState(null)   // null | parsed books array
+  const [view, setView]         = useState('grid')     // 'grid' | 'list'
   const importInputRef          = useRef(null)
 
   // ── fetch ──────────────────────────────────────────────────────────────────
@@ -655,26 +726,40 @@ export default function App() {
             onChange={e => setSearch(e.target.value)}
           />
         </div>
+        <div className="view-toggle">
+          <button
+            className={`view-btn ${view === 'grid' ? 'active' : ''}`}
+            onClick={() => setView('grid')}
+            aria-label="Grid view"
+          ><GridIcon /></button>
+          <button
+            className={`view-btn ${view === 'list' ? 'active' : ''}`}
+            onClick={() => setView('list')}
+            aria-label="List view"
+          ><ListIcon /></button>
+        </div>
       </div>
 
       {loading && <p className="loading-msg">Loading your library…</p>}
       {error   && <p className="error-msg">Error: {error}</p>}
 
       {!loading && !error && (
-        <div className="book-grid">
-          {filtered.length === 0
-            ? <div className="empty">No books found</div>
-            : filtered.map(b => (
-                <BookCard
-                  key={b.id}
-                  book={b}
-                  onEdit={setModal}
-                  onDelete={handleDelete}
-                  onRate={handleRate}
-                />
-              ))
-          }
-        </div>
+        filtered.length === 0
+          ? <div className="empty">No books found</div>
+          : view === 'grid'
+            ? (
+              <div className="book-grid">
+                {filtered.map(b => (
+                  <BookCard key={b.id} book={b} onEdit={setModal} onDelete={handleDelete} onRate={handleRate} />
+                ))}
+              </div>
+            ) : (
+              <div className="book-list">
+                {filtered.map(b => (
+                  <BookRow key={b.id} book={b} onEdit={setModal} onDelete={handleDelete} onRate={handleRate} />
+                ))}
+              </div>
+            )
       )}
 
       {modal && (
