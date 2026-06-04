@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { searchExternalBooks } from './api'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -14,130 +15,20 @@ export const EMPTY_FORM = {
   date_started: '', date_finished: '', cover_url: '', year: '',
 }
 
-// ─── External book search ─────────────────────────────────────────────────────
+// ─── Shared utilities ─────────────────────────────────────────────────────────
 
-export async function searchExternalBooks(query) {
-  const [olRes, gbRes] = await Promise.allSettled([
-    fetch(`https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&limit=5&fields=key,title,author_name,number_of_pages_median,subject,cover_i`)
-      .then(r => r.json()),
-    fetch(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=5`)
-      .then(r => r.json()),
-  ])
-  const results = []
-  if (olRes.status === 'fulfilled' && olRes.value.docs) {
-    olRes.value.docs.slice(0, 5).forEach(d => results.push({
-      title:     d.title,
-      author:    (d.author_name || []).join(', '),
-      pages:     d.number_of_pages_median || '',
-      genre:     (d.subject || [])[0] || '',
-      cover_url: d.cover_i ? `https://covers.openlibrary.org/b/id/${d.cover_i}-M.jpg` : '',
-      source:    'Open Library',
-    }))
-  }
-  if (gbRes.status === 'fulfilled' && gbRes.value.items) {
-    gbRes.value.items.slice(0, 5).forEach(d => {
-      const v = d.volumeInfo
-      results.push({
-        title:     v.title,
-        author:    (v.authors || []).join(', '),
-        pages:     v.pageCount || '',
-        genre:     (v.categories || [])[0] || '',
-        cover_url: v.imageLinks?.thumbnail?.replace('http://', 'https://') || '',
-        source:    'Google Books',
-      })
-    })
-  }
-  return results
-}
+export const handleImgError = e => { e.target.style.display = 'none' }
 
-// ─── Goodreads CSV helpers ────────────────────────────────────────────────────
+// ─── Modal wrapper ────────────────────────────────────────────────────────────
 
-export function parseCSV(text) {
-  const rows = []
-  let row = [], field = '', inQuotes = false
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i], next = text[i + 1]
-    if (inQuotes) {
-      if (ch === '"' && next === '"') { field += '"'; i++ }
-      else if (ch === '"')            inQuotes = false
-      else                            field += ch
-    } else {
-      if      (ch === '"')  inQuotes = true
-      else if (ch === ',')  { row.push(field); field = '' }
-      else if (ch === '\n' || ch === '\r') {
-        if (ch === '\r' && next === '\n') i++
-        row.push(field); rows.push(row); row = []; field = ''
-      } else field += ch
-    }
-  }
-  if (row.length) { row.push(field); if (row.some(Boolean)) rows.push(row) }
-  return rows
-}
-
-export function goodreadsToBooks(text) {
-  const rows = parseCSV(text)
-  if (rows.length < 2) return []
-  const headers = rows[0].map(h => h.trim())
-  const statusMap = { 'read': 'read', 'currently-reading': 'reading', 'to-read': 'want' }
-  const grDate = d => (d ? d.replace(/\//g, '-') : null)
-
-  return rows.slice(1)
-    .filter(r => r.some(Boolean))
-    .map(row => {
-      const g = {}
-      headers.forEach((h, i) => { g[h] = (row[i] || '').trim() })
-
-      const isbn13 = g['ISBN13'].replace(/[="]/g, '')
-      const isbn   = g['ISBN'].replace(/[="]/g, '')
-      const isbn_  = isbn13 || isbn
-      const status = statusMap[g['Exclusive Shelf']] || 'want'
-
-      const dateAdded    = grDate(g['Date Added'])
-      const dateFinished = status === 'read' ? grDate(g['Date Read']) : null
-      // Only use Date Added as start date if it's on or before Date Read
-      // (books added retroactively have Date Added > Date Read)
-      const dateStarted  = dateAdded && (!dateFinished || dateAdded <= dateFinished)
-        ? dateAdded : null
-
-      return {
-        title:         g['Title'],
-        author:        g['Author'],
-        status,
-        rating:        parseInt(g['My Rating'], 10) || 0,
-        pages:         parseInt(g['Number of Pages'], 10) || null,
-        notes:         g['My Review'] || '',
-        date_started:  dateStarted,
-        date_finished: dateFinished,
-        cover_url:     isbn_ ? `https://covers.openlibrary.org/b/isbn/${isbn_}-M.jpg` : '',
-        year:          parseInt(g['Original Publication Year'], 10) || parseInt(g['Year Published'], 10) || null,
-      }
-    })
-    .filter(b => b.title)
-}
-
-export async function lookupPublicationYear(title, author) {
-  try {
-    const q = encodeURIComponent(`${title} ${author}`.trim())
-    const res = await fetch(
-      `https://openlibrary.org/search.json?q=${q}&limit=1&fields=first_publish_year`
-    ).then(r => r.json())
-    return res.docs?.[0]?.first_publish_year || null
-  } catch {
-    return null
-  }
-}
-
-export async function lookupCoverByTitle(title, author) {
-  try {
-    const q = encodeURIComponent(`${title} ${author}`.trim())
-    const { docs } = await fetch(
-      `https://openlibrary.org/search.json?q=${q}&limit=1&fields=cover_i`
-    ).then(r => r.json())
-    const id = docs?.[0]?.cover_i
-    return id ? `https://covers.openlibrary.org/b/id/${id}-M.jpg` : ''
-  } catch {
-    return ''
-  }
+export function Modal({ children }) {
+  return (
+    <div className="modal-overlay" role="dialog" aria-modal="true">
+      <div className="modal">
+        {children}
+      </div>
+    </div>
+  )
 }
 
 // ─── View icons ───────────────────────────────────────────────────────────────
@@ -228,7 +119,7 @@ export function BookCard({ book, onEdit, onDelete, onRate }) {
     <div className="book-card">
       <div className="book-top">
         {book.cover_url
-          ? <img className="book-cover" src={book.cover_url} alt="" onError={e => { e.target.style.display = 'none' }} />
+          ? <img className="book-cover" src={book.cover_url} alt={book.title} onError={handleImgError} />
           : <div className="book-cover-placeholder" />
         }
         <div className="book-info">
@@ -264,7 +155,7 @@ export function BookRow({ book, onEdit, onDelete, onRate }) {
   return (
     <div className="book-row">
       {book.cover_url
-        ? <img className="row-cover" src={book.cover_url} alt="" onError={e => { e.target.style.display = 'none' }} />
+        ? <img className="row-cover" src={book.cover_url} alt={book.title} onError={handleImgError} />
         : <div className="row-cover-placeholder" />
       }
       <div className="row-title">{book.title}</div>
@@ -311,7 +202,7 @@ export function ImportSearch({ onImport }) {
           {results.map((r, i) => (
             <div key={i} className="import-result">
               {r.cover_url
-                ? <img className="import-cover" src={r.cover_url} alt="" onError={e => { e.target.style.display = 'none' }} />
+                ? <img className="import-cover" src={r.cover_url} alt={r.title} onError={handleImgError} />
                 : <div className="import-cover-placeholder" />
               }
               <div className="import-result-info">
@@ -349,87 +240,85 @@ export function BookModal({ initial, onSave, onClose }) {
     if (!form.title.trim()) return
     onSave({
       ...form,
-      rating:        Number(form.rating)     || 0,
-      pages:         Number(form.pages)      || null,
-      pages_read:    Number(form.pages_read) || 0,
-      year:          Number(form.year)       || null,
-      date_started:  form.date_started       || null,
-      date_finished: form.date_finished      || null,
+      rating:        Number(form.rating) || 0,
+      pages:         form.pages      ? Number(form.pages)      : null,
+      pages_read:    form.pages_read ? Number(form.pages_read) : 0,
+      year:          form.year       ? Number(form.year)       : null,
+      date_started:  form.date_started  || null,
+      date_finished: form.date_finished || null,
     })
   }
 
   const isEditing = !!initial?.id
   return (
-    <div className="modal-overlay" role="dialog" aria-modal="true">
-      <div className="modal">
-        <h2>{isEditing ? 'Edit book' : 'Add book'}</h2>
-        {!isEditing && <ImportSearch onImport={handleImport} />}
-        <form onSubmit={handleSubmit}>
+    <Modal>
+      <h2>{isEditing ? 'Edit book' : 'Add book'}</h2>
+      {!isEditing && <ImportSearch onImport={handleImport} />}
+      <form onSubmit={handleSubmit}>
+        <div className="field">
+          <label htmlFor="f-title">Title</label>
+          <input id="f-title" type="text" placeholder="Book title" value={form.title} onChange={e => set('title', e.target.value)} required />
+        </div>
+        <div className="field">
+          <label htmlFor="f-author">Author</label>
+          <input id="f-author" type="text" placeholder="Author name" value={form.author} onChange={e => set('author', e.target.value)} />
+        </div>
+        <div className="field-row three">
           <div className="field">
-            <label htmlFor="f-title">Title</label>
-            <input id="f-title" type="text" placeholder="Book title" value={form.title} onChange={e => set('title', e.target.value)} required />
-          </div>
-          <div className="field">
-            <label htmlFor="f-author">Author</label>
-            <input id="f-author" type="text" placeholder="Author name" value={form.author} onChange={e => set('author', e.target.value)} />
-          </div>
-          <div className="field-row three">
-            <div className="field">
-              <label htmlFor="f-genre">Genre</label>
-              <input id="f-genre" type="text" placeholder="Fiction, Sci-Fi…" value={form.genre} onChange={e => set('genre', e.target.value)} />
-            </div>
-            <div className="field">
-              <label htmlFor="f-pages">Pages</label>
-              <input id="f-pages" type="number" placeholder="Total pages" min="1" value={form.pages} onChange={e => set('pages', e.target.value)} />
-            </div>
-            <div className="field">
-              <label htmlFor="f-year">Year published</label>
-              <input id="f-year" type="number" placeholder="e.g. 1985" min="1" max="2100" value={form.year || ''} onChange={e => set('year', e.target.value)} />
-            </div>
+            <label htmlFor="f-genre">Genre</label>
+            <input id="f-genre" type="text" placeholder="Fiction, Sci-Fi…" value={form.genre} onChange={e => set('genre', e.target.value)} />
           </div>
           <div className="field">
-            <label htmlFor="f-status">Status</label>
-            <select id="f-status" value={form.status} onChange={e => set('status', e.target.value)}>
-              <option value="want">Want to read</option>
-              <option value="reading">Currently reading</option>
-              <option value="read">Finished</option>
-            </select>
+            <label htmlFor="f-pages">Pages</label>
+            <input id="f-pages" type="number" placeholder="Total pages" min="1" value={form.pages} onChange={e => set('pages', e.target.value)} />
           </div>
-          {form.status !== 'want' && (
-            <div className="field-row">
+          <div className="field">
+            <label htmlFor="f-year">Year published</label>
+            <input id="f-year" type="number" placeholder="e.g. 1985" min="1" max="2100" value={form.year || ''} onChange={e => set('year', e.target.value)} />
+          </div>
+        </div>
+        <div className="field">
+          <label htmlFor="f-status">Status</label>
+          <select id="f-status" value={form.status} onChange={e => set('status', e.target.value)}>
+            <option value="want">Want to read</option>
+            <option value="reading">Currently reading</option>
+            <option value="read">Finished</option>
+          </select>
+        </div>
+        {form.status !== 'want' && (
+          <div className="field-row">
+            <div className="field">
+              <label htmlFor="f-date-started">Date started</label>
+              <input id="f-date-started" type="date" value={form.date_started || ''} onChange={e => set('date_started', e.target.value)} />
+            </div>
+            {form.status === 'read' && (
               <div className="field">
-                <label htmlFor="f-date-started">Date started</label>
-                <input id="f-date-started" type="date" value={form.date_started || ''} onChange={e => set('date_started', e.target.value)} />
+                <label htmlFor="f-date-finished">Date finished</label>
+                <input id="f-date-finished" type="date" value={form.date_finished || ''} onChange={e => set('date_finished', e.target.value)} />
               </div>
-              {form.status === 'read' && (
-                <div className="field">
-                  <label htmlFor="f-date-finished">Date finished</label>
-                  <input id="f-date-finished" type="date" value={form.date_finished || ''} onChange={e => set('date_finished', e.target.value)} />
-                </div>
-              )}
-            </div>
-          )}
-          {form.status === 'reading' && (
-            <div className="field">
-              <label htmlFor="f-pages-read">Pages read</label>
-              <input id="f-pages-read" type="number" placeholder="0" min="0" value={form.pages_read || ''} onChange={e => set('pages_read', e.target.value)} />
-            </div>
-          )}
+            )}
+          </div>
+        )}
+        {form.status === 'reading' && (
           <div className="field">
-            <label>Rating</label>
-            <StarPicker value={form.rating || 0} onChange={v => set('rating', v)} />
+            <label htmlFor="f-pages-read">Pages read</label>
+            <input id="f-pages-read" type="number" placeholder="0" min="0" value={form.pages_read || ''} onChange={e => set('pages_read', e.target.value)} />
           </div>
-          <div className="field">
-            <label htmlFor="f-notes">Notes / Review</label>
-            <textarea id="f-notes" placeholder="What did you think?" value={form.notes} onChange={e => set('notes', e.target.value)} />
-          </div>
-          <div className="modal-actions">
-            <button type="button" className="btn-cancel" onClick={onClose}>Cancel</button>
-            <button type="submit" className="btn-save">Save</button>
-          </div>
-        </form>
-      </div>
-    </div>
+        )}
+        <div className="field">
+          <label>Rating</label>
+          <StarPicker value={form.rating || 0} onChange={v => set('rating', v)} />
+        </div>
+        <div className="field">
+          <label htmlFor="f-notes">Notes / Review</label>
+          <textarea id="f-notes" placeholder="What did you think?" value={form.notes} onChange={e => set('notes', e.target.value)} />
+        </div>
+        <div className="modal-actions">
+          <button type="button" className="btn-cancel" onClick={onClose}>Cancel</button>
+          <button type="submit" className="btn-save">Save</button>
+        </div>
+      </form>
+    </Modal>
   )
 }
 
@@ -453,35 +342,33 @@ export function GoodreadsImportModal({ books, onConfirm, onClose }) {
   }
 
   return (
-    <div className="modal-overlay" role="dialog" aria-modal="true">
-      <div className="modal">
-        {phase === 'preview' && (<>
-          <h2>Import from Goodreads</h2>
-          <p className="gr-sub">Found <strong>{books.length}</strong> books in your export.</p>
-          <div className="gr-counts">
-            {counts.read > 0 && <div className="gr-count-row"><span className={`status-badge ${STATUS_META.read.cls}`}>{STATUS_META.read.label}</span><span className="gr-count-num">{counts.read}</span></div>}
-            {counts.reading > 0 && <div className="gr-count-row"><span className={`status-badge ${STATUS_META.reading.cls}`}>{STATUS_META.reading.label}</span><span className="gr-count-num">{counts.reading}</span></div>}
-            {counts.want > 0 && <div className="gr-count-row"><span className={`status-badge ${STATUS_META.want.cls}`}>{STATUS_META.want.label}</span><span className="gr-count-num">{counts.want}</span></div>}
-          </div>
-          <p className="gr-note">Ratings and read dates are imported automatically. Cover images are fetched from Open Library — books with ISBNs resolve instantly; others are looked up by title.</p>
-          <div className="modal-actions">
-            <button className="btn-cancel" onClick={onClose}>Cancel</button>
-            <button className="btn-save" onClick={startImport}>Import {books.length} book{books.length !== 1 ? 's' : ''}</button>
-          </div>
-        </>)}
-        {phase === 'importing' && (<>
-          <h2>Importing…</h2>
-          <div className="progress-wrap" style={{ marginTop: '1.25rem' }}>
-            <div className="progress-label"><span>{progLabel}</span><span>{pct}%</span></div>
-            <div className="progress-bar-bg"><div className="progress-bar-fill" style={{ width: `${pct}%` }} /></div>
-          </div>
-        </>)}
-        {phase === 'done' && (<>
-          <h2>Import complete</h2>
-          <p className="gr-sub">{books.length} book{books.length !== 1 ? 's' : ''} added to your library.</p>
-          <div className="modal-actions"><button className="btn-save" onClick={onClose}>Done</button></div>
-        </>)}
-      </div>
-    </div>
+    <Modal>
+      {phase === 'preview' && (<>
+        <h2>Import from Goodreads</h2>
+        <p className="gr-sub">Found <strong>{books.length}</strong> books in your export.</p>
+        <div className="gr-counts">
+          {counts.read > 0 && <div className="gr-count-row"><span className={`status-badge ${STATUS_META.read.cls}`}>{STATUS_META.read.label}</span><span className="gr-count-num">{counts.read}</span></div>}
+          {counts.reading > 0 && <div className="gr-count-row"><span className={`status-badge ${STATUS_META.reading.cls}`}>{STATUS_META.reading.label}</span><span className="gr-count-num">{counts.reading}</span></div>}
+          {counts.want > 0 && <div className="gr-count-row"><span className={`status-badge ${STATUS_META.want.cls}`}>{STATUS_META.want.label}</span><span className="gr-count-num">{counts.want}</span></div>}
+        </div>
+        <p className="gr-note">Ratings and read dates are imported automatically. Cover images are fetched from Open Library — books with ISBNs resolve instantly; others are looked up by title.</p>
+        <div className="modal-actions">
+          <button className="btn-cancel" onClick={onClose}>Cancel</button>
+          <button className="btn-save" onClick={startImport}>Import {books.length} book{books.length !== 1 ? 's' : ''}</button>
+        </div>
+      </>)}
+      {phase === 'importing' && (<>
+        <h2>Importing…</h2>
+        <div className="progress-wrap" style={{ marginTop: '1.25rem' }}>
+          <div className="progress-label"><span>{progLabel}</span><span>{pct}%</span></div>
+          <div className="progress-bar-bg"><div className="progress-bar-fill" style={{ width: `${pct}%` }} /></div>
+        </div>
+      </>)}
+      {phase === 'done' && (<>
+        <h2>Import complete</h2>
+        <p className="gr-sub">{books.length} book{books.length !== 1 ? 's' : ''} added to your library.</p>
+        <div className="modal-actions"><button className="btn-save" onClick={onClose}>Done</button></div>
+      </>)}
+    </Modal>
   )
 }

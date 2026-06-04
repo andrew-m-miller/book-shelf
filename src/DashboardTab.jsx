@@ -1,27 +1,25 @@
 import { useState } from 'react'
-import { ProgressBar, StarDisplay, StarPicker } from './shared'
+import { ProgressBar, StarDisplay, StarPicker, Modal, handleImgError } from './shared'
 
 // ─── Completion modal ─────────────────────────────────────────────────────────
 
 function CompletionModal({ book, onConfirm, onClose }) {
   const [rating, setRating] = useState(book.rating || 0)
   return (
-    <div className="modal-overlay" role="dialog" aria-modal="true">
-      <div className="modal">
-        <h2>Finished!</h2>
-        <p className="gr-sub">{book.title}</p>
-        <div className="field" style={{ marginTop: '1rem' }}>
-          <label>Your rating</label>
-          <StarPicker value={rating} onChange={setRating} />
-        </div>
-        <div className="modal-actions">
-          <button className="btn-cancel" onClick={onClose}>Cancel</button>
-          <button className="btn-save" onClick={() => { onConfirm(book.id, rating); onClose() }}>
-            Mark as read
-          </button>
-        </div>
+    <Modal>
+      <h2>Finished!</h2>
+      <p className="gr-sub">{book.title}</p>
+      <div className="field" style={{ marginTop: '1rem' }}>
+        <label>Your rating</label>
+        <StarPicker value={rating} onChange={setRating} />
       </div>
-    </div>
+      <div className="modal-actions">
+        <button className="btn-cancel" onClick={onClose}>Cancel</button>
+        <button className="btn-save" onClick={() => { onConfirm(book.id, rating); onClose() }}>
+          Mark as read
+        </button>
+      </div>
+    </Modal>
   )
 }
 
@@ -43,7 +41,7 @@ function ReadingCard({ book, onUpdate, onEdit, onComplete }) {
     <div className="reading-card">
       <div className="reading-card-top">
         {book.cover_url && (
-          <img className="reading-cover" src={book.cover_url} alt="" onError={e => { e.target.style.display = 'none' }} />
+          <img className="reading-cover" src={book.cover_url} alt={book.title} onError={handleImgError} />
         )}
         <div className="reading-info">
           <div className="reading-title">{book.title}</div>
@@ -111,7 +109,7 @@ function RecentRow({ book }) {
   return (
     <div className="recent-row">
       {book.cover_url && (
-        <img className="recent-cover" src={book.cover_url} alt="" onError={e => { e.target.style.display = 'none' }} />
+        <img className="recent-cover" src={book.cover_url} alt={book.title} onError={handleImgError} />
       )}
       <div className="recent-info">
         <div className="recent-title">{book.title}</div>

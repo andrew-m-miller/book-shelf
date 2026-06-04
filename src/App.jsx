@@ -1,11 +1,16 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from './supabaseClient'
-import { BookModal, GoodreadsImportModal, goodreadsToBooks, lookupCoverByTitle, lookupPublicationYear } from './shared'
+import { goodreadsToBooks, lookupCoverByTitle, lookupPublicationYear } from './api'
+import { BookModal, GoodreadsImportModal } from './shared'
 import DashboardTab from './DashboardTab'
 import LibraryTab   from './LibraryTab'
 import GoalsTab     from './GoalsTab'
 import StatsTab     from './StatsTab'
 import './App.css'
+
+const YEAR_BATCH   = 3
+const COVER_BATCH  = 5
+const INSERT_BATCH = 50
 
 const TABS = [
   { id: 'dashboard', label: 'Dashboard' },
@@ -65,7 +70,8 @@ export default function App() {
   }
 
   async function handleRate(id, rating) {
-    await supabase.from('books').update({ rating }).eq('id', id)
+    const { error } = await supabase.from('books').update({ rating }).eq('id', id)
+    if (error) { alert('Rating failed: ' + error.message); return }
     setBooks(bs => bs.map(b => b.id === id ? { ...b, rating } : b))
   }
 
@@ -108,18 +114,19 @@ export default function App() {
       if (!parsed.length) { alert('No books found. Make sure this is a Goodreads export CSV.'); return }
       setImportData(parsed)
     }
+    reader.onerror = () => alert('Failed to read file.')
     reader.readAsText(file)
   }
 
   async function handleBackfillYears(onProgress) {
     const needsYear = books.filter(b => !b.year && b.title)
     let done = 0
-    for (let i = 0; i < needsYear.length; i += 3) {
-      await Promise.all(needsYear.slice(i, i + 3).map(async book => {
+    for (let i = 0; i < needsYear.length; i += YEAR_BATCH) {
+      await Promise.all(needsYear.slice(i, i + YEAR_BATCH).map(async book => {
         const year = await lookupPublicationYear(book.title, book.author)
         if (year) {
-          await supabase.from('books').update({ year }).eq('id', book.id)
-          setBooks(bs => bs.map(b => b.id === book.id ? { ...b, year } : b))
+          const { error } = await supabase.from('books').update({ year }).eq('id', book.id)
+          if (!error) setBooks(bs => bs.map(b => b.id === book.id ? { ...b, year } : b))
         }
         onProgress(++done, needsYear.length)
       }))
@@ -129,15 +136,15 @@ export default function App() {
   async function handleGoodreadsConfirm(books, onProgress) {
     const needsCover    = books.filter(b => !b.cover_url)
     const hasCoverLookups = needsCover.length > 0
-    for (let i = 0; i < needsCover.length; i += 5) {
-      const slice = needsCover.slice(i, i + 5)
+    for (let i = 0; i < needsCover.length; i += COVER_BATCH) {
+      const slice = needsCover.slice(i, i + COVER_BATCH)
       const urls  = await Promise.all(slice.map(b => lookupCoverByTitle(b.title, b.author)))
       urls.forEach((url, j) => { slice[j].cover_url = url })
       onProgress(Math.round(((i + slice.length) / needsCover.length) * 30), 'Finding covers…')
     }
     const base = hasCoverLookups ? 30 : 0
-    for (let i = 0; i < books.length; i += 50) {
-      const batch = books.slice(i, i + 50)
+    for (let i = 0; i < books.length; i += INSERT_BATCH) {
+      const batch = books.slice(i, i + INSERT_BATCH)
       const { error } = await supabase.from('books').insert(batch)
       if (error) { alert('Import failed: ' + error.message); return }
       onProgress(base + Math.round(((i + batch.length) / books.length) * (100 - base)), 'Saving to library…')
