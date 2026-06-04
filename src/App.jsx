@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from './supabaseClient'
 import { goodreadsToBooks, lookupCoverByTitle, lookupPublicationYear } from './api'
-import { BookModal, GoodreadsImportModal } from './shared'
+import { BookModal, BookDetailModal, GoodreadsImportModal } from './shared'
 import DashboardTab from './DashboardTab'
 import LibraryTab   from './LibraryTab'
 import GoalsTab     from './GoalsTab'
@@ -25,8 +25,11 @@ export default function App() {
   const [loading, setLoading]       = useState(true)
   const [error, setError]           = useState(null)
   const [modal, setModal]           = useState(null)      // null | 'add' | book object
+  const [detailId, setDetailId]     = useState(null)      // null | book id (detail view)
   const [importData, setImportData] = useState(null)      // null | parsed books array
   const [pagesThisWeek, setPagesThisWeek] = useState(0)
+  const [dailyPages, setDailyPages] = useState({})        // { 'YYYY-MM-DD': pages }
+  const [goals, setGoals]           = useState([])
   const importInputRef              = useRef(null)
 
   // ── data ────────────────────────────────────────────────────────────────────
@@ -39,14 +42,38 @@ export default function App() {
     setLoading(false)
   }, [])
 
-  const fetchPagesThisWeek = useCallback(async () => {
-    const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+  // Pulls a rolling year of reading_log, aggregated into per-day page totals.
+  // Powers both the "pages this week" stat and the activity heatmap / streaks.
+  const fetchReadingActivity = useCallback(async () => {
+    const since = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString()
     const { data } = await supabase
-      .from('reading_log').select('pages').gte('logged_at', since)
-    if (data) setPagesThisWeek(data.reduce((s, r) => s + r.pages, 0))
+      .from('reading_log').select('pages, logged_at').gte('logged_at', since)
+    if (!data) return
+    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+    const byDay = {}
+    let week = 0
+    data.forEach(r => {
+      byDay[r.logged_at.slice(0, 10)] = (byDay[r.logged_at.slice(0, 10)] || 0) + r.pages
+      if (r.logged_at >= weekAgo) week += r.pages
+    })
+    setDailyPages(byDay)
+    setPagesThisWeek(week)
   }, [])
 
-  useEffect(() => { fetchBooks(); fetchPagesThisWeek() }, [fetchBooks, fetchPagesThisWeek])
+  const fetchGoals = useCallback(async () => {
+    const { data } = await supabase.from('goals').select('*').order('year', { ascending: false })
+    if (data) setGoals(data)
+  }, [])
+
+  useEffect(() => { fetchBooks(); fetchReadingActivity(); fetchGoals() },
+    [fetchBooks, fetchReadingActivity, fetchGoals])
+
+  // Reflect a freshly logged page delta in today's bucket without a refetch.
+  function bumpToday(delta) {
+    const today = new Date().toISOString().slice(0, 10)
+    setDailyPages(m => ({ ...m, [today]: (m[today] || 0) + delta }))
+    setPagesThisWeek(p => p + delta)
+  }
 
   // ── handlers ─────────────────────────────────────────────────────────────────
   async function handleSave(form) {
@@ -66,7 +93,27 @@ export default function App() {
     if (!window.confirm('Remove this book?')) return
     const { error } = await supabase.from('books').delete().eq('id', id)
     if (error) return alert('Delete failed: ' + error.message)
+    setDetailId(null)
     fetchBooks()
+  }
+
+  // ── goals ────────────────────────────────────────────────────────────────────
+  async function handleAddGoal(type, target, year) {
+    const { error } = await supabase.from('goals').insert({ type, target, year })
+    if (error) return alert('Could not save goal: ' + error.message)
+    fetchGoals()
+  }
+
+  async function handleEditGoal(id, target) {
+    const { error } = await supabase.from('goals').update({ target }).eq('id', id)
+    if (error) return alert('Could not update goal: ' + error.message)
+    setGoals(gs => gs.map(g => g.id === id ? { ...g, target } : g))
+  }
+
+  async function handleDeleteGoal(id) {
+    const { error } = await supabase.from('goals').delete().eq('id', id)
+    if (error) return alert('Could not delete goal: ' + error.message)
+    setGoals(gs => gs.filter(g => g.id !== id))
   }
 
   async function handleRate(id, rating) {
@@ -83,7 +130,7 @@ export default function App() {
     setBooks(bs => bs.map(b => b.id === id ? { ...b, pages_read: pagesRead } : b))
     if (delta > 0) {
       const { error: logErr } = await supabase.from('reading_log').insert({ book_id: id, pages: delta })
-      if (!logErr) setPagesThisWeek(prev => prev + delta)
+      if (!logErr) bumpToday(delta)
     }
   }
 
@@ -99,7 +146,7 @@ export default function App() {
     const delta = (book?.pages || 0) - (book?.pages_read || 0)
     if (delta > 0) {
       const { error: logErr } = await supabase.from('reading_log').insert({ book_id: id, pages: delta })
-      if (!logErr) setPagesThisWeek(prev => prev + delta)
+      if (!logErr) bumpToday(delta)
     }
     fetchBooks()
   }
@@ -154,6 +201,9 @@ export default function App() {
   }
 
   // ── render ──────────────────────────────────────────────────────────────────
+  // Resolve against live state so inline rating edits show in the open detail view.
+  const detailBook = detailId != null ? books.find(b => b.id === detailId) : null
+
   return (
     <div className="app">
       <header className="header">
@@ -179,7 +229,9 @@ export default function App() {
           handleMarkComplete={handleMarkComplete}
           handleRate={handleRate}
           setModal={setModal}
+          onOpen={b => setDetailId(b.id)}
           pagesThisWeek={pagesThisWeek}
+          dailyPages={dailyPages}
         />
       )}
       {tab === 'library' && (
@@ -190,15 +242,34 @@ export default function App() {
           handleDelete={handleDelete}
           handleRate={handleRate}
           setModal={setModal}
+          onOpen={b => setDetailId(b.id)}
           onImportClick={() => importInputRef.current.click()}
           onBackfillYears={handleBackfillYears}
         />
       )}
-      {tab === 'goals'  && <GoalsTab books={books} />}
+      {tab === 'goals'  && (
+        <GoalsTab
+          books={books}
+          goals={goals}
+          onAddGoal={handleAddGoal}
+          onEditGoal={handleEditGoal}
+          onDeleteGoal={handleDeleteGoal}
+        />
+      )}
       {tab === 'stats'  && <StatsTab books={books} />}
 
       {/* Hidden CSV input lives at app level so its ref is stable */}
       <input ref={importInputRef} type="file" accept=".csv" style={{ display: 'none' }} onChange={handleCSVFile} />
+
+      {detailBook && (
+        <BookDetailModal
+          book={detailBook}
+          onRate={handleRate}
+          onEdit={() => { setModal(detailBook); setDetailId(null) }}
+          onDelete={handleDelete}
+          onClose={() => setDetailId(null)}
+        />
+      )}
 
       {modal && (
         <BookModal

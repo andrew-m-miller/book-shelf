@@ -113,11 +113,13 @@ export function ProgressBar({ pagesRead, pages }) {
 
 // ─── Book card (grid view) ────────────────────────────────────────────────────
 
-export function BookCard({ book, onEdit, onDelete, onRate }) {
+export function BookCard({ book, onEdit, onDelete, onRate, onOpen }) {
   const meta = STATUS_META[book.status] || STATUS_META.want
   return (
     <div className="book-card">
-      <div className="book-top">
+      <div className="book-top book-open" role="button" tabIndex={0}
+        onClick={() => onOpen?.(book)}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen?.(book) } }}>
         {book.cover_url
           ? <img className="book-cover" src={book.cover_url} alt={book.title} onError={handleImgError} />
           : <div className="book-cover-placeholder" />
@@ -150,16 +152,17 @@ export function BookCard({ book, onEdit, onDelete, onRate }) {
 
 // ─── Book row (list view) ─────────────────────────────────────────────────────
 
-export function BookRow({ book, onEdit, onDelete, onRate }) {
+export function BookRow({ book, onEdit, onDelete, onRate, onOpen }) {
   const meta = STATUS_META[book.status] || STATUS_META.want
+  const open = () => onOpen?.(book)
   return (
     <div className="book-row">
       {book.cover_url
-        ? <img className="row-cover" src={book.cover_url} alt={book.title} onError={handleImgError} />
-        : <div className="row-cover-placeholder" />
+        ? <img className="row-cover book-open" src={book.cover_url} alt={book.title} onError={handleImgError} onClick={open} />
+        : <div className="row-cover-placeholder book-open" onClick={open} />
       }
-      <div className="row-title">{book.title}</div>
-      <div className="row-author">{book.author}</div>
+      <div className="row-title book-open" onClick={open}>{book.title}</div>
+      <div className="row-author book-open" onClick={open}>{book.author}</div>
       <span className={`status-badge ${meta.cls}`}>{meta.label}</span>
       <StarDisplay value={book.rating || 0} onRate={onRate} bookId={book.id} />
       <div className="row-actions">
@@ -167,6 +170,55 @@ export function BookRow({ book, onEdit, onDelete, onRate }) {
         <button className="icon-btn danger" onClick={() => onDelete(book.id)} aria-label="Delete">🗑</button>
       </div>
     </div>
+  )
+}
+
+// ─── Book detail modal ────────────────────────────────────────────────────────
+
+export function BookDetailModal({ book, onEdit, onDelete, onRate, onClose }) {
+  const meta = STATUS_META[book.status] || STATUS_META.want
+  const facts = [
+    book.genre         && ['Genre',     book.genre],
+    book.pages         && ['Pages',     book.pages],
+    book.year          && ['Published', book.year],
+    book.date_started  && ['Started',   book.date_started],
+    book.date_finished && ['Finished',  book.date_finished],
+  ].filter(Boolean)
+
+  return (
+    <Modal>
+      <div className="detail-head">
+        {book.cover_url
+          ? <img className="detail-cover" src={book.cover_url} alt={book.title} onError={handleImgError} />
+          : <div className="detail-cover-placeholder" />
+        }
+        <div className="detail-head-info">
+          <span className={`status-badge ${meta.cls}`}>{meta.label}</span>
+          <h2 className="detail-title">{book.title}</h2>
+          {book.author && <div className="detail-author">{book.author}</div>}
+          <StarDisplay value={book.rating || 0} onRate={onRate} bookId={book.id} />
+        </div>
+      </div>
+
+      {book.status === 'reading' && <ProgressBar pagesRead={book.pages_read} pages={book.pages} />}
+
+      {facts.length > 0 && (
+        <div className="detail-facts">
+          {facts.map(([k, v]) => (
+            <div key={k} className="detail-fact"><span>{k}</span><span>{v}</span></div>
+          ))}
+        </div>
+      )}
+
+      {book.notes && <div className="detail-notes">{book.notes}</div>}
+
+      <div className="modal-actions detail-actions">
+        <button className="btn-delete" onClick={() => onDelete(book.id)}>Delete</button>
+        <div className="detail-actions-spacer" />
+        <button className="btn-cancel" onClick={onClose}>Close</button>
+        <button className="btn-save" onClick={onEdit}>Edit</button>
+      </div>
+    </Modal>
   )
 }
 

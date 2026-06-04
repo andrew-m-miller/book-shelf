@@ -1,5 +1,115 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { ProgressBar, StarDisplay, StarPicker, Modal, handleImgError } from './shared'
+
+// ─── Reading activity (streaks + heatmap) ─────────────────────────────────────
+
+const DAY_MS = 86400000
+const dayKey = d => d.toISOString().slice(0, 10)
+const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+
+// Merge logged page-deltas with finished-book dates into one day → pages map.
+// Imported books predate the reading_log, so their finish dates still count.
+function buildActivity(books, dailyPages) {
+  const map = { ...dailyPages }
+  books.forEach(b => {
+    if (b.status === 'read' && b.date_finished && !(b.date_finished in map)) {
+      map[b.date_finished] = b.pages || 0
+    }
+  })
+  return map
+}
+
+function computeStreaks(activeSet) {
+  if (!activeSet.size) return { current: 0, longest: 0 }
+  const days = [...activeSet].sort()
+  let longest = 1, run = 1
+  for (let i = 1; i < days.length; i++) {
+    const diff = Math.round((new Date(days[i] + 'T00:00:00Z') - new Date(days[i - 1] + 'T00:00:00Z')) / DAY_MS)
+    run = diff === 1 ? run + 1 : 1
+    if (run > longest) longest = run
+  }
+  // Current streak counts back from today; a blank today still allows a live
+  // streak that ended yesterday.
+  let cursor = new Date(dayKey(new Date()) + 'T00:00:00Z')
+  if (!activeSet.has(dayKey(cursor))) cursor = new Date(+cursor - DAY_MS)
+  let current = 0
+  while (activeSet.has(dayKey(cursor))) { current++; cursor = new Date(+cursor - DAY_MS) }
+  return { current, longest }
+}
+
+function intensity(pages, active) {
+  if (!active) return 0
+  if (pages < 30)  return 1
+  if (pages < 75)  return 2
+  if (pages < 150) return 3
+  return 4
+}
+
+function ReadingHeatmap({ activity }) {
+  const today    = new Date()
+  const year     = today.getUTCFullYear()
+  const todayKey = dayKey(today)
+
+  // Grid spans the week containing Jan 1 through the week containing today.
+  const jan1   = new Date(Date.UTC(year, 0, 1))
+  const endKey = new Date(todayKey + 'T00:00:00Z')
+  let cursor   = new Date(+jan1 - jan1.getUTCDay() * DAY_MS) // back to Sunday
+
+  const weeks = []
+  while (cursor <= endKey) {
+    const week = []
+    for (let i = 0; i < 7; i++) {
+      const key = dayKey(cursor)
+      week.push({
+        key,
+        month:  cursor.getUTCMonth(),
+        inYear: cursor.getUTCFullYear() === year,
+        future: key > todayKey,
+        pages:  activity[key] || 0,
+        active: key in activity,
+      })
+      cursor = new Date(+cursor + DAY_MS)
+    }
+    weeks.push(week)
+  }
+
+  // A month label sits above the first week that opens a new month.
+  let lastMonth = -1
+  const labels = weeks.map(week => {
+    const m = week[0].month
+    if (week[0].inYear && m !== lastMonth) { lastMonth = m; return MONTH_ABBR[m] }
+    return ''
+  })
+
+  return (
+    <div className="heatmap-scroll">
+      <div className="heatmap-months">
+        {labels.map((l, i) => <span key={i} className="hm-month">{l}</span>)}
+      </div>
+      <div className="heatmap-grid">
+        {weeks.map((week, wi) => (
+          <div key={wi} className="hm-col">
+            {week.map(cell => {
+              const shown = cell.inYear && !cell.future
+              return (
+                <div
+                  key={cell.key}
+                  className={`hm-cell ${shown ? `lvl-${intensity(cell.pages, cell.active)}` : 'hm-blank'}`}
+                  title={shown ? `${cell.key}: ${cell.pages ? cell.pages + ' pages' : (cell.active ? 'read' : 'no reading')}` : ''}
+                />
+              )
+            })}
+          </div>
+        ))}
+      </div>
+      <div className="heatmap-legend">
+        <span>Less</span>
+        {[0, 1, 2, 3, 4].map(l => <span key={l} className={`hm-cell lvl-${l}`} />)}
+        <span>More</span>
+      </div>
+    </div>
+  )
+}
 
 // ─── Completion modal ─────────────────────────────────────────────────────────
 
@@ -25,7 +135,7 @@ function CompletionModal({ book, onConfirm, onClose }) {
 
 // ─── Currently-reading card ───────────────────────────────────────────────────
 
-function ReadingCard({ book, onUpdate, onEdit, onComplete }) {
+function ReadingCard({ book, onUpdate, onEdit, onComplete, onOpen }) {
   const [input, setInput]   = useState(String(book.pages_read || 0))
   const [saving, setSaving] = useState(false)
 
@@ -41,10 +151,10 @@ function ReadingCard({ book, onUpdate, onEdit, onComplete }) {
     <div className="reading-card">
       <div className="reading-card-top">
         {book.cover_url && (
-          <img className="reading-cover" src={book.cover_url} alt={book.title} onError={handleImgError} />
+          <img className="reading-cover book-open" src={book.cover_url} alt={book.title} onError={handleImgError} onClick={() => onOpen?.(book)} />
         )}
         <div className="reading-info">
-          <div className="reading-title">{book.title}</div>
+          <div className="reading-title book-open" onClick={() => onOpen?.(book)}>{book.title}</div>
           <div className="reading-author">{book.author}</div>
           <ProgressBar pagesRead={book.pages_read} pages={book.pages} />
         </div>
@@ -105,9 +215,9 @@ function RatingBarChart({ readBooks }) {
 
 // ─── Recently finished row ────────────────────────────────────────────────────
 
-function RecentRow({ book }) {
+function RecentRow({ book, onOpen }) {
   return (
-    <div className="recent-row">
+    <div className="recent-row book-open" onClick={() => onOpen?.(book)}>
       {book.cover_url && (
         <img className="recent-cover" src={book.cover_url} alt={book.title} onError={handleImgError} />
       )}
@@ -123,7 +233,7 @@ function RecentRow({ book }) {
 
 // ─── Dashboard tab ────────────────────────────────────────────────────────────
 
-export default function DashboardTab({ books, loading, handleProgressUpdate, handleMarkComplete, handleRate, setModal, pagesThisWeek }) {
+export default function DashboardTab({ books, loading, handleProgressUpdate, handleMarkComplete, handleRate, setModal, onOpen, pagesThisWeek, dailyPages }) {
   const [completing, setCompleting] = useState(null) // null | book object
   const currentYear = new Date().getFullYear()
 
@@ -140,16 +250,20 @@ export default function DashboardTab({ books, loading, handleProgressUpdate, han
     ? (rated.reduce((s, b) => s + b.rating, 0) / rated.length).toFixed(1)
     : '—'
 
+  const activity = useMemo(() => buildActivity(books, dailyPages || {}), [books, dailyPages])
+  const { current: streak, longest } = useMemo(
+    () => computeStreaks(new Set(Object.keys(activity))), [activity])
+
   if (loading) return <p className="loading-msg">Loading…</p>
 
   return (
     <>
-      <div className="stats-row">
+      <div className="stats-row stats-row-fit">
         {[
-          { label: 'Total read',        value: readBooks.length },
           { label: String(currentYear), value: readThisYear.length },
           { label: 'Reading now',       value: currentlyReading.length },
           { label: 'Avg rating',        value: avgRating },
+          { label: 'Day streak',        value: streak },
           { label: 'Pages this week',   value: pagesThisWeek.toLocaleString() },
         ].map(s => (
           <div key={s.label} className="stat-card">
@@ -158,6 +272,18 @@ export default function DashboardTab({ books, loading, handleProgressUpdate, han
           </div>
         ))}
       </div>
+
+      <section className="dash-section">
+        <div className="dash-section-header">
+          <h2 className="dash-heading">Reading activity</h2>
+          {longest > 0 && (
+            <span className="activity-meta">
+              {streak > 0 ? `${streak}-day streak` : 'No active streak'} · best {longest}
+            </span>
+          )}
+        </div>
+        <ReadingHeatmap activity={activity} />
+      </section>
 
       <section className="dash-section">
         <div className="dash-section-header">
@@ -174,6 +300,7 @@ export default function DashboardTab({ books, loading, handleProgressUpdate, han
             onUpdate={handleProgressUpdate}
             onEdit={setModal}
             onComplete={setCompleting}
+            onOpen={onOpen}
           />
         ))}
       </section>
@@ -187,7 +314,7 @@ export default function DashboardTab({ books, loading, handleProgressUpdate, han
         <section className="dash-section">
           <h2 className="dash-heading">Recently finished</h2>
           <div className="recent-list">
-            {recentlyFinished.map(b => <RecentRow key={b.id} book={b} />)}
+            {recentlyFinished.map(b => <RecentRow key={b.id} book={b} onOpen={onOpen} />)}
           </div>
         </section>
       )}

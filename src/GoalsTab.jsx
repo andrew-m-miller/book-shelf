@@ -1,5 +1,11 @@
 import { useState } from 'react'
 
+// Goal type metadata — unit label + how the target is phrased.
+const GOAL_TYPES = {
+  books_per_year: { unit: 'books', noun: 'book',  verb: 'Read' },
+  pages_per_year: { unit: 'pages', noun: 'page',  verb: 'Read' },
+}
+
 function yearProgress() {
   const now   = new Date()
   const start = new Date(now.getFullYear(), 0, 1).getTime()
@@ -7,15 +13,18 @@ function yearProgress() {
   return (now.getTime() - start) / (end - start)
 }
 
-function GoalCard({ goal, booksRead, onEdit, onDelete }) {
+function fmt(n) { return n.toLocaleString() }
+
+function GoalCard({ goal, current, onEdit, onDelete }) {
   const [editing, setEditing] = useState(false)
   const [draft,   setDraft]   = useState(String(goal.target))
   const currentYear = new Date().getFullYear()
   const isPast = goal.year < currentYear
+  const meta   = GOAL_TYPES[goal.type] || GOAL_TYPES.books_per_year
 
-  const pct      = Math.min(100, Math.round(booksRead / goal.target * 100))
-  const complete  = booksRead >= goal.target
-  const onTrack   = !isPast && !complete && booksRead >= Math.floor(yearProgress() * goal.target)
+  const pct      = Math.min(100, Math.round(current / goal.target * 100))
+  const complete = current >= goal.target
+  const onTrack  = !isPast && !complete && current >= Math.floor(yearProgress() * goal.target)
 
   function saveEdit() {
     const t = parseInt(draft, 10)
@@ -25,26 +34,26 @@ function GoalCard({ goal, booksRead, onEdit, onDelete }) {
   }
 
   let statusLabel = '', statusCls = ''
-  if (complete)      { statusLabel = '🎉 Goal reached!'; statusCls = 'complete' }
-  else if (isPast)   { statusLabel = `Finished ${booksRead} of ${goal.target}`; statusCls = 'missed' }
-  else if (onTrack)  { statusLabel = 'On track';  statusCls = 'on-track' }
-  else               { statusLabel = 'Behind pace'; statusCls = 'behind' }
+  if (complete)     { statusLabel = '🎉 Goal reached!'; statusCls = 'complete' }
+  else if (isPast)  { statusLabel = `Reached ${fmt(current)} of ${fmt(goal.target)} ${meta.unit}`; statusCls = 'missed' }
+  else if (onTrack) { statusLabel = 'On track';   statusCls = 'on-track' }
+  else              { statusLabel = 'Behind pace'; statusCls = 'behind' }
 
   return (
     <div className="goal-card">
       <div className="goal-card-top">
         <div>
-          <div className="goal-year">{goal.year}</div>
+          <div className="goal-year">{goal.year} · {meta.unit}</div>
           {editing ? (
             <div className="goal-edit-row">
-              <span>Read</span>
+              <span>{meta.verb}</span>
               <input type="number" min="1" value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') setEditing(false) }} autoFocus />
-              <span>books</span>
+              <span>{meta.unit}</span>
               <button onClick={saveEdit}>Save</button>
               <button className="btn-cancel-sm" onClick={() => setEditing(false)}>Cancel</button>
             </div>
           ) : (
-            <div className="goal-desc">Read {goal.target} books</div>
+            <div className="goal-desc">{meta.verb} {fmt(goal.target)} {meta.unit}</div>
           )}
         </div>
         {!isPast && !editing && (
@@ -60,7 +69,7 @@ function GoalCard({ goal, booksRead, onEdit, onDelete }) {
 
       <div className="progress-wrap">
         <div className="progress-label">
-          <span>{booksRead} of {goal.target} books</span>
+          <span>{fmt(current)} of {fmt(goal.target)} {meta.unit}</span>
           <span>{pct}%</span>
         </div>
         <div className="progress-bar-bg">
@@ -73,25 +82,38 @@ function GoalCard({ goal, booksRead, onEdit, onDelete }) {
   )
 }
 
-function NewGoalForm({ year, onSave }) {
+function NewGoalForm({ year, availableTypes, onSave }) {
+  const [type,   setType]   = useState(availableTypes[0])
   const [target, setTarget] = useState('')
+  const meta = GOAL_TYPES[type]
+
+  // Keep the selected type valid as goals get added.
+  if (!availableTypes.includes(type)) setType(availableTypes[0])
+
   return (
     <div className="goal-empty">
-      <p className="goal-empty-text">No goal set for {year} yet.</p>
+      <p className="goal-empty-text">Set a reading goal for {year}.</p>
       <div className="set-goal-row">
-        <span>Read</span>
+        <span>{meta.verb}</span>
         <input
           type="number"
           min="1"
           value={target}
           onChange={e => setTarget(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && target && onSave(target)}
-          placeholder="20"
+          onKeyDown={e => e.key === 'Enter' && target && onSave(type, target)}
+          placeholder={type === 'pages_per_year' ? '6000' : '20'}
         />
-        <span>books in {year}</span>
+        {availableTypes.length > 1 ? (
+          <select className="sf-select" value={type} onChange={e => setType(e.target.value)}>
+            {availableTypes.map(t => <option key={t} value={t}>{GOAL_TYPES[t].unit}</option>)}
+          </select>
+        ) : (
+          <span>{meta.unit}</span>
+        )}
+        <span>in {year}</span>
         <button
           className="add-btn"
-          onClick={() => target && onSave(target)}
+          onClick={() => target && onSave(type, target)}
           disabled={!target}
         >Set goal</button>
       </div>
@@ -99,53 +121,46 @@ function NewGoalForm({ year, onSave }) {
   )
 }
 
-export default function GoalsTab({ books }) {
+export default function GoalsTab({ books, goals, onAddGoal, onEditGoal, onDeleteGoal }) {
   const currentYear = new Date().getFullYear()
 
-  const [goals, setGoals] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('bs_goals') || '[]') }
-    catch { return [] }
-  })
+  const readInYear = year =>
+    books.filter(b => b.status === 'read' && b.date_finished?.startsWith(String(year)))
 
-  function persist(updated) {
-    setGoals(updated)
-    localStorage.setItem('bs_goals', JSON.stringify(updated))
+  function progressFor(goal) {
+    const read = readInYear(goal.year)
+    return goal.type === 'pages_per_year'
+      ? read.reduce((s, b) => s + (b.pages || 0), 0)
+      : read.length
   }
 
-  function addGoal(target) {
-    persist([...goals, { id: Date.now(), type: 'books_per_year', target: parseInt(target, 10), year: currentYear }])
-  }
-
-  function editGoal(id, target) {
-    persist(goals.map(g => g.id === id ? { ...g, target } : g))
-  }
-
-  function deleteGoal(id) {
-    persist(goals.filter(g => g.id !== id))
-  }
-
-  function booksReadInYear(year) {
-    return books.filter(b => b.status === 'read' && b.date_finished?.startsWith(String(year))).length
-  }
-
-  const currentGoal = goals.find(g => g.year === currentYear)
-  const pastGoals   = goals.filter(g => g.year !== currentYear).sort((a, b) => b.year - a.year)
+  const currentGoals  = goals.filter(g => g.year === currentYear)
+  const pastGoals     = goals.filter(g => g.year !== currentYear)
+                             .sort((a, b) => b.year - a.year)
+  const availableTypes = Object.keys(GOAL_TYPES)
+    .filter(t => !currentGoals.some(g => g.type === t))
 
   return (
     <>
       <section className="dash-section">
-        <h2 className="dash-heading">{currentYear} reading goal</h2>
-        {currentGoal
-          ? <GoalCard goal={currentGoal} booksRead={booksReadInYear(currentYear)} onEdit={editGoal} onDelete={deleteGoal} />
-          : <NewGoalForm year={currentYear} onSave={addGoal} />
-        }
+        <h2 className="dash-heading">{currentYear} reading goals</h2>
+        {currentGoals.map(g => (
+          <GoalCard key={g.id} goal={g} current={progressFor(g)} onEdit={onEditGoal} onDelete={onDeleteGoal} />
+        ))}
+        {availableTypes.length > 0 && (
+          <NewGoalForm
+            year={currentYear}
+            availableTypes={availableTypes}
+            onSave={(type, target) => onAddGoal(type, parseInt(target, 10), currentYear)}
+          />
+        )}
       </section>
 
       {pastGoals.length > 0 && (
         <section className="dash-section">
           <h2 className="dash-heading">Past goals</h2>
           {pastGoals.map(g => (
-            <GoalCard key={g.id} goal={g} booksRead={booksReadInYear(g.year)} onEdit={editGoal} onDelete={deleteGoal} />
+            <GoalCard key={g.id} goal={g} current={progressFor(g)} onEdit={onEditGoal} onDelete={onDeleteGoal} />
           ))}
         </section>
       )}
