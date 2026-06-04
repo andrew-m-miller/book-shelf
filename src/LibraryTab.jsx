@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { STATUS_META, BookCard, BookRow, GridIcon, ListIcon } from './shared'
 
-export default function LibraryTab({ books, loading, error, handleDelete, handleRate, setModal, onImportClick, onBackfillYears }) {
+export default function LibraryTab({ books, loading, error, handleDelete, handleRate, setModal, onOpen, onImportClick, onBackfillYears }) {
   const [filter,         setFilter]         = useState('all')
   const [search,         setSearch]         = useState('')
   const [view,           setView]           = useState('grid')
@@ -187,8 +187,8 @@ export default function LibraryTab({ books, loading, error, handleDelete, handle
         filtered.length === 0
           ? <div className="empty">No books found</div>
           : view === 'grid'
-            ? <div className="book-grid">{filtered.map(b => <BookCard key={b.id} book={b} onEdit={setModal} onDelete={handleDelete} onRate={handleRate} />)}</div>
-            : <div className="book-list">{filtered.map(b => <BookRow  key={b.id} book={b} onEdit={setModal} onDelete={handleDelete} onRate={handleRate} />)}</div>
+            ? <div className="book-grid">{filtered.map(b => <BookCard key={b.id} book={b} onEdit={setModal} onDelete={handleDelete} onRate={handleRate} onOpen={onOpen} />)}</div>
+            : <div className="book-list">{filtered.map(b => <BookRow  key={b.id} book={b} onEdit={setModal} onDelete={handleDelete} onRate={handleRate} onOpen={onOpen} />)}</div>
       )}
     </>
   )

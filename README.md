@@ -21,6 +21,8 @@ create table books (
   pages_read     int  default 0,
   date_started   date,
   date_finished  date,
+  cover_url      text,
+  year           int,
   created_at     timestamptz default now()
 );
 
@@ -28,6 +30,37 @@ create table books (
 alter table books enable row level security;
 create policy "Allow all" on books for all using (true) with check (true);
 ```
+
+The app also uses two companion tables — a per-session reading log (powers the
+"pages this week" stat, the activity heatmap, and streaks) and reading goals:
+
+```sql
+create table reading_log (
+  id         bigint generated always as identity primary key,
+  book_id    bigint references books(id) on delete cascade,
+  pages      int not null,
+  logged_at  timestamptz default now()
+);
+
+create table goals (
+  id         bigint generated always as identity primary key,
+  type       text check (type in ('books_per_year', 'pages_per_year')) default 'books_per_year',
+  target     int  not null,
+  year       int  not null,
+  created_at timestamptz default now()
+);
+
+-- Same public-access policy as books (personal app, no auth)
+alter table reading_log enable row level security;
+create policy "Allow all" on reading_log for all using (true) with check (true);
+
+alter table goals enable row level security;
+create policy "Allow all" on goals for all using (true) with check (true);
+```
+
+If you previously set reading goals in an earlier version, note they were stored
+in the browser's `localStorage`; goals now live in Supabase and will need to be
+re-entered once.
 
 ### 2. Environment variables
 
@@ -83,7 +116,10 @@ Your app will be live at `https://YOUR_GITHUB_USERNAME.github.io/book-shelf`.
 - Star ratings (click any star on a card to rate instantly)
 - Reading progress bar (pages read / total pages)
 - Date started and date finished fields
-- Summary stats: total, finished, reading now, average rating
+- Summary stats: total, finished, reading now, average rating, day streak
+- Reading activity heatmap and streak tracking
+- Tap any book to open a detail view (full notes, dates, facts; edit/delete inline)
+- Annual reading goals (books or pages per year) with on-track progress
 - Filter by status, search by title or author
 - Dark mode (follows system preference)
 - Data persisted in Supabase Postgres
